@@ -1,7 +1,8 @@
-# 🌐 GSEDUSIGNUP 部署指南（Google Workspace EDU 子号自助注册）
+# 🌐 部署指南（Google Workspace EDU 子号自助注册）
 
 本系统可部署在 Vercel（[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/git/external?repository-url=https://github.com/chatgptuk/GS-EDU-SIGNUP&project-name=GSEDUSIGNUP)
-），并接入 [linux.do](https://linux.do) 进行 OAuth 授权。
+）。
+已接入 [linux.do](https://linux.do) 进行 OAuth 授权。
 
 ---
 
