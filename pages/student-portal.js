@@ -1,326 +1,563 @@
-// pages/student-portal.js
-import Head from 'next/head'
-import { parse } from 'cookie'
+// --- START OF FILE student-portal.js ---
 
-// Constants for semester & program
-const SEMESTER = 'Fall 2025'
-const PROGRAM  = 'Master of Computer Science'
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/router';
+import Head from 'next/head'; // Import Head for title and Font Awesome
+import Link from 'next/link'; // Import Next.js Link for internal navigation
+import axios from 'axios'; // Keep axios for API calls
 
-// Helper to refresh token & fetch user from Google Directory
-async function fetchGoogleUser(email) {
-  const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type':'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id:     process.env.GOOGLE_CLIENT_ID,
-      client_secret: process.env.GOOGLE_CLIENT_SECRET,
-      refresh_token: process.env.GOOGLE_REFRESH_TOKEN,
-      grant_type:    'refresh_token'
-    })
-  })
-  if (!tokenRes.ok) return null
-  const { access_token } = await tokenRes.json()
-  const userRes = await fetch(
-    `https://admin.googleapis.com/admin/directory/v1/users/${encodeURIComponent(email)}`,
-    { headers: { Authorization: `Bearer ${access_token}` } }
-  )
-  if (!userRes.ok) return null
-  return await userRes.json()
+// --- Helper function to format name (keep from original) ---
+// Adjust this based on your actual API response format for profile.name
+function formatUserName(nameData) {
+  if (!nameData) return 'N/A';
+  if (typeof nameData === 'string') return nameData; // If API returns a single string
+  // Example: If API returns { givenName: '三', familyName: '张' }
+  if (nameData.givenName && nameData.familyName) {
+    // Decide order based on convention (e.g., FamilyName GivenName)
+    // Assuming Chinese convention: FamilyName GivenName
+    return `${nameData.familyName || ''} ${nameData.givenName || ''}`.trim();
+  }
+  // Fallback if nameData is an object but doesn't match expected structure
+  if (typeof nameData === 'object' && nameData !== null) {
+    return JSON.stringify(nameData); // Or provide a more generic fallback
+  }
+  return 'N/A'; // Default fallback
 }
 
-export async function getServerSideProps({ req }) {
-  const cookies       = parse(req.headers.cookie || '')
-  const oauthUsername = cookies.oauthUsername
-  const trustLevel    = parseInt(cookies.oauthTrustLevel || '0', 10)
 
-  // Must be OAuth2’d and trust_level ≥ 3
-  if (!oauthUsername || trustLevel < 3) {
-    return { redirect: { destination: '/', permanent: false } }
-  }
+export default function StudentPortal() {
+  const router = useRouter();
+  const [profile, setProfile] = useState(null);
+  const [loading, setLoading] = useState(true); // Keep loading state
+  const [error, setError] = useState(null); // Keep error state
 
-  // Build the student’s email
-  const rawDom = process.env.EMAIL_DOMAIN
-  const domain = rawDom.startsWith('@') ? rawDom : '@' + rawDom
-  const studentEmail = oauthUsername.includes('@')
-    ? oauthUsername
-    : `${oauthUsername}${domain}`
-
-  // Fetch the Google user – if missing, send them back to register
-  const googleUser = await fetchGoogleUser(studentEmail)
-  if (!googleUser) {
-    return { redirect: { destination: '/register', permanent: false } }
-  }
-
-  // Pull name & recoveryEmail from Google
-  const fullName      = `${googleUser.name.givenName} ${googleUser.name.familyName}`
-  const personalEmail = googleUser.recoveryEmail || ''
-  const studentId     = cookies.oauthUserId
-
-  return {
-    props: {
-      fullName,
-      personalEmail,
-      studentEmail,
-      studentId
+  // --- Keep useEffect for fetching profile data ---
+  useEffect(() => {
+    async function fetchProfile() {
+      setLoading(true);
+      setError(null);
+      try {
+        // Use the same API endpoint as before
+        const response = await axios.get('/api/profile');
+        setProfile(response.data);
+      } catch (err) {
+        console.error("Failed to fetch profile:", err);
+        setError('无法加载学生信息。请稍后再试或联系管理员。 (Failed to load profile data.)');
+        // Optional: Redirect based on error (e.g., 401 Unauthorized)
+        if (err.response && (err.response.status === 401 || err.response.status === 403)) {
+           // Maybe redirect to login after a delay or provide a button
+           // router.push('/');
+        }
+      } finally {
+        setLoading(false);
+      }
     }
-  }
-}
 
-export default function StudentPortal({
-  fullName,
-  personalEmail,
-  studentEmail,
-  studentId
-}) {
-  // Pad the forum ID to 6 digits
-  const sid = String(studentId).padStart(6, '0')
+    fetchProfile();
+    // Dependency array: if profile data depends only on initial load, keep it empty
+    // If it depends on something like router query, add it.
+    // For now, assuming it's fetched once on component mount.
+  }, []); // Changed dependency array to empty for fetching only once, adjust if needed
 
-  // Links
-  const gmailLink =
-    `https://accounts.google.com/ServiceLogin?Email=${encodeURIComponent(studentEmail)}` +
-    `&continue=https://mail.google.com/mail`
-  const canvaLink = 'https://www.canva.com/login'
-  const adobeLink = `https://accounts.adobe.com/`
 
-  // Delete handler
+  // --- Keep Delete Account Handler ---
   const handleDelete = async () => {
-    if (!confirm('Are you sure you want to delete your account?')) return
-    const res = await fetch('/api/delete-account', { method: 'POST' })
-    if (res.ok) {
-      window.location.href = '/'
-    } else {
-      alert('Failed to delete account.')
+    // Use confirm dialog as in original JS
+    if (!confirm('您确定要删除您的账户吗？此操作无法撤销。\nAre you sure you want to delete your account? This action cannot be undone.')) {
+        return;
     }
+    try {
+        // Keep the simulated logic or replace with your actual API call
+        // console.log('Simulating account deletion...');
+        // const response = await axios.post('/api/delete-account'); // Your actual endpoint
+
+        alert('删除账户请求已提交（模拟）。您将被登出。\nAccount deletion request submitted (Simulated). You will be logged out.');
+
+        // Redirect to logout endpoint (same as original)
+        // Using POST via form submission below is better for logout/delete usually.
+        // But if your /api/logout works with GET/redirect, this is fine.
+        // Or use the form POST method from the original JS for logout button.
+        router.push('/api/logout'); // Redirect to logout handler
+
+    } catch (err) {
+        console.error("Failed to delete account:", err);
+        alert('尝试删除账户时发生错误。请稍后再试。\nAn error occurred while trying to delete the account. Please try again later.');
+    }
+  };
+
+
+  // --- Render Loading State (Keep from original) ---
+  if (loading) {
+    // Consider a more visually appealing loader matching the new style
+    return <div style={{ textAlign: 'center', padding: '50px', fontFamily: 'Nunito, sans-serif' }}>加载学生门户中... (Loading Student Portal...)</div>;
   }
 
+  // --- Render Error State (Keep from original) ---
+  if (error || !profile) {
+    return (
+        <div style={{ textAlign: 'center', padding: '50px', fontFamily: 'Nunito, sans-serif', color: 'red' }}>
+            <p>错误 (Error): {error || '无法加载信息 (Could not load profile).'}</p>
+            {/* Keep button to go back/login */}
+            <button onClick={() => router.push('/')} style={{ padding: '10px 20px', cursor: 'pointer' }}>返回登录 (Go to Login)</button>
+        </div>
+    );
+  }
+
+  // --- Dynamically create the Gmail link (Keep from original) ---
+  const gmailLink = profile.student_email
+    ? `https://mail.google.com/a/${profile.student_email.split('@')[1]}?Email=${encodeURIComponent(profile.student_email)}&continue=https://mail.google.com/mail/u/${encodeURIComponent(profile.student_email)}/` // More robust G Workspace link
+    : '#'; // Fallback if email is not available
+
+
+  // --- Render the Portal using the new HTML structure and dynamic data ---
   return (
     <>
-      <Head><title>Student Portal</title></Head>
+      <Head>
+        {/* Keep Head content from original JS/HTML */}
+        <title>学生门户 - 孔子学院 (Student Portal - Confucius Institute)</title>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossOrigin="anonymous" referrerPolicy="no-referrer" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="true" />
+        <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700&display=swap" rel="stylesheet" />
+        {/* Consider adding your favicon link here */}
+        {/* <link rel="icon" href="/favicon.ico" /> */}
+      </Head>
 
-      <div className="container">
-        {/* School logo & heading */}
-        <div className="school-header">
-          <svg
-            width="48"
-            height="48"
-            viewBox="0 0 48 48"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            {/* Outer circle */}
-            <circle cx="24" cy="24" r="22" fill="#0062cc" />
-            {/* Stylized book shape */}
-            <rect x="14" y="14" width="20" height="12" rx="2" fill="#fff" />
-            <path d="M14,26 L24,36 L34,26 Z" fill="#fff" />
-            {/* “CU” text */}
-            <text
-              x="24"
-              y="22"
-              textAnchor="middle"
-              fontSize="12"
-              fontFamily="Arial, sans-serif"
-              fill="#0062cc"
-            >
-              CU
-            </text>
-          </svg>
-          <div className="school-text">
-            <h1>ChatGPT University</h1>
-            <h2>Student Portal</h2>
-          </div>
-        </div>
+      {/* Use the styles from index.html */}
+      <style jsx global>{`
+        /* === Paste all CSS rules from the <style> tag of index.html here === */
+        body {
+            margin: 0;
+            font-family: 'Nunito', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #e9ecef 100%);
+            color: #333;
+            line-height: 1.6;
+            min-height: 100vh;
+        }
 
-        {/* Profile info */}
-        <div className="info">
-          <p><strong>Name:</strong> {fullName}</p>
-          <p><strong>Semester:</strong> {SEMESTER}</p>
-          <p><strong>Program:</strong> {PROGRAM}</p>
-          <p><strong>Student Email:</strong> {studentEmail}</p>
-          <p><strong>Personal Email:</strong> {personalEmail}</p>
-          <p><strong>Student ID:</strong> {sid}</p>
-        </div>
+        .portal-container {
+            max-width: 1000px;
+            margin: 20px auto;
+            padding: 30px;
+            background-color: rgba(255, 255, 255, 0.95);
+            border-radius: 16px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
 
-        {/* Tiles */}
-        <div className="grid">
-          {/* Student Email opens in new tab */}
-          <a
-            href={gmailLink}
-            className="grid-item"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <img
-              src="https://www.gstatic.com/images/branding/product/1x/gmail_48dp.png"
-              alt="Student Email"
-            />
-            <p>Student Email</p>
-          </a>
+        /* === Header === */
+        .portal-header {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            margin-bottom: 25px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #dee2e6;
+            text-align: center;
+        }
 
-          {/* e‑Student Card stays in same tab */}
-          <a href="/student-card" className="grid-item">
-            <div className="card-icon">🎓</div>
-            <p>e‑Student Card</p>
-          </a>
+        .logo {
+            width: 90px; /* Use the same logo size */
+            height: auto;
+            margin-bottom: 15px;
+        }
 
-          {/* Adobe Express opens in new tab */}
-          <a
-            href={adobeLink}
-            className="grid-item"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <img
-              src="https://upload.wikimedia.org/wikipedia/commons/thumb/1/1c/Adobe_Express_logo_RGB_1024px.png/500px-Adobe_Express_logo_RGB_1024px.png"
-              alt="Adobe Express"
-            />
-            <p>Adobe Express</p>
-          </a>
+        .portal-header h1 {
+            font-size: 26px;
+            color: #2c3e50;
+            margin-bottom: 5px;
+            font-weight: 700;
+        }
+        .portal-header h2 {
+            font-size: 17px;
+            color: #566573;
+            font-weight: 400;
+        }
 
-          <div className="grid-item empty" />
+        /* === Card === */
+        .card {
+            background-color: #ffffff;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+            margin-bottom: 25px;
+            border: 1px solid #e9ecef;
+        }
 
-          {/* Canva opens in new tab */}
-          <a
-            href={canvaLink}
-            className="grid-item"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <img
-              src="https://static.canva.com/web/images/8439b51bb7a19f6e65ce1064bc37c197.svg"
-              alt="Canva"
-            />
-            <p>Canva</p>
-          </a>
+        .card h3 {
+            font-size: 20px;
+            color: #1a5276;
+            margin: 0 0 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #e0e0e0;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+        }
+        .card h3 i {
+            margin-right: 12px;
+            font-size: 18px;
+            color: #3498db;
+            flex-shrink: 0;
+        }
 
-          {/* Add Email Aliases stays in same tab */}
-          <a href="/aliases" className="grid-item">
-            <svg
-              width="48"
-              height="48"
-              viewBox="0 0 48 48"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <circle cx="24" cy="24" r="22" fill="#28a745" />
-              <line x1="24" y1="14" x2="24" y2="34" stroke="#fff" strokeWidth="4" />
-              <line x1="14" y1="24" x2="34" y2="24" stroke="#fff" strokeWidth="4" />
-            </svg>
-            <p>Add Email Aliases</p>
-          </a>
-          <a href="/reset-password" className="grid-item">
-            <svg width="48" height="48" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
-              <circle cx="12" cy="24" r="8" fill="#ffc107" />
-              <rect x="18" y="20" width="20" height="8" fill="#ffc107" />
-              <rect x="34" y="20" width="4" height="4" fill="#fff" />
-              <rect x="38" y="20" width="4" height="4" fill="#fff" />
-            </svg>
-            <p>Reset Password</p>
-          </a>
-          <div className="grid-item empty" />
-        </div>
+        /* === Profile Section === */
+        .profile-details {
+            display: grid;
+            grid-template-columns: 1fr; /* Single column layout */
+            gap: 15px;
+            background: #f9f9f9;
+            padding: 20px;
+            border-radius: 10px;
+            transition: all 0.3s ease;
+        }
+        /* Optional: Add hover effect from HTML if desired */
+        .profile-details:hover {
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+        .profile-details p {
+            margin: 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 15px;
+            background: #fff;
+            border-radius: 8px;
+            font-size: 15px;
+            color: #333;
+            border: 1px solid #e9ecef;
+            transition: transform 0.2s ease;
+            word-break: break-word; /* Ensure long content wraps */
+        }
+        .profile-details p:hover { /* Optional hover effect */
+            transform: translateY(-2px);
+        }
+        .profile-details strong {
+            font-weight: 600;
+            color: #2c3e50;
+            margin-right: 10px; /* Add some spacing */
+            flex-shrink: 0; /* Prevent label from shrinking */
+        }
+        .profile-details span {
+            color: #555;
+            font-weight: 400;
+            text-align: right; /* Align value to the right */
+            word-break: break-all; /* Break long emails/IDs */
+        }
 
-        {/* Delete My Account button */}
-        <button className="delete-button" onClick={handleDelete}>
-          Delete My Account
-        </button>
+        /* === Actions Section === */
+        .actions-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 20px;
+        }
 
-        <footer>
-          Powered by{' '}
-          <a href="https://www.chatgpt.org.uk/" target="_blank" rel="noopener">
-            chatgpt.org.uk
-          </a>
-        </footer>
-      </div>
+        .action-button {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            background: linear-gradient(145deg, #ffffff, #f9f9f9);
+            color: #34495e;
+            border: 1px solid #e0e4e8;
+            border-radius: 12px;
+            text-align: center;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 3px 8px rgba(0, 0, 0, 0.05);
+            min-height: 120px; /* Use min-height instead of fixed height */
+        }
 
-      <style jsx>{`
-        .container {
-          max-width: 900px;
-          margin: 40px auto;
-          padding: 0 20px;
+        .action-button i, .action-button img {
+            font-size: 28px;
+            width: 28px; /* Ensure consistent icon size */
+            height: 28px; /* Ensure consistent icon size */
+            margin-bottom: 10px;
+            color: #3498db; /* Default icon color */
+            transition: all 0.3s ease;
+            object-fit: contain; /* For img tag */
         }
-        .school-header {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          margin-bottom: 24px;
+
+        .action-button:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 6px 15px rgba(52, 152, 219, 0.2);
+            border-color: #aed6f1;
+            background: #ffffff;
         }
-        .school-text h1 {
-          margin: 0;
-          font-size: 24px;
-          color: #333;
+
+        .action-button:hover i, .action-button:hover img {
+            /* Keep default hover color or customize per button */
+             transform: scale(1.1);
         }
-        .school-text h2 {
-          margin: 0;
-          font-size: 18px;
-          color: #555;
+
+        /* Specific Icon Colors & Hovers (Copied from HTML) */
+        .action-button.email i { color: #e74c3c; }
+        .action-button.card i { color: #2ecc71; }
+        .action-button.adobe img { /* Adjust if needed */ }
+        .action-button.transcript i { color: #9b59b6; }
+        .action-button.canva i { color: #1abc9c; }
+        .action-button.password i { color: #f1c40f; }
+        .action-button.aliases i { color: #28a745; }
+
+        /* Apply specific hover colors if desired */
+        .action-button:hover.email i { color: #c0392b; }
+        .action-button:hover.card i { color: #27ae60; }
+        .action-button:hover.transcript i { color: #8e44ad; }
+        .action-button:hover.canva i { color: #16a085; }
+        .action-button:hover.password i { color: #f39c12; }
+        .action-button:hover.aliases i { color: #218838; }
+        .action-button:hover.adobe img { /* Add hover effect for Adobe img if needed */ }
+
+
+        /* === Footer === */
+        .portal-footer {
+            text-align: center;
+            margin-top: 25px;
+            padding-top: 20px;
+            border-top: 1px solid #dee2e6;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
         }
-        .info {
-          background: #f7f7f7;
-          padding: 20px;
-          border-radius: 8px;
-          margin-bottom: 30px;
+        .footer-buttons {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            justify-content: center;
         }
-        .info p {
-          margin: 6px 0;
+
+        .logout-button, .delete-button {
+            padding: 10px 25px;
+            border-radius: 8px;
+            border: none;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
         }
-        .grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-          gap: 20px;
+        .logout-button i, .delete-button i {
+            margin-right: 8px;
         }
-        .grid-item {
-          background: #fff;
-          border: 1px solid #ddd;
-          border-radius: 8px;
-          padding: 24px 12px;
-          text-align: center;
-          transition: transform 0.1s, box-shadow 0.1s;
-          text-decoration: none;
-          color: inherit;
+
+        /* Logout Button Styles */
+        .logout-button {
+            background: linear-gradient(145deg, #e74c3c, #c0392b);
+            color: white;
+            box-shadow: 0 3px 8px rgba(231, 76, 60, 0.3);
         }
-        .grid-item:hover {
-          transform: translateY(-4px);
-          box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        .logout-button:hover {
+            background: linear-gradient(145deg, #c0392b, #e74c3c);
+            box-shadow: 0 5px 15px rgba(231, 76, 60, 0.4);
+            transform: translateY(-2px);
         }
-        .grid-item img {
-          width: 48px;
-          height: 48px;
-          margin-bottom: 8px;
-          object-fit: contain;
-        }
-        .card-icon {
-          font-size: 48px;
-          margin-bottom: 8px;
-        }
-        .empty {
-          visibility: hidden;
-        }
+
+        /* Delete Button Styles */
         .delete-button {
-          display: block;
-          margin: 30px auto 0;
-          padding: 10px 20px;
-          background: #dc3545;
-          color: #fff;
-          border: none;
-          border-radius: 6px;
-          font-size: 16px;
-          cursor: pointer;
+            background: #6c757d;
+            color: #fff;
+            padding: 8px 18px; /* Adjust padding if needed */
+            font-size: 14px; /* Adjust font size if needed */
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
         }
         .delete-button:hover {
-          background: #c82333;
+            background: #5a6268;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+            transform: translateY(-1px);
         }
-        footer {
-          margin-top: 40px;
-          text-align: center;
-          color: #777;
-          font-size: 14px;
+
+        .footer-text {
+            color: #777;
+            font-size: 13px;
+            margin-top: 10px;
         }
-        footer a {
-          color: #0070f3;
-          text-decoration: none;
+        .footer-text a {
+            color: #0070f3; /* Or your theme color */
+            text-decoration: none;
         }
-        footer a:hover {
-          text-decoration: underline;
+        .footer-text a:hover {
+            text-decoration: underline;
         }
+
+        /* === Responsive Adjustments (Copied from HTML) === */
+        @media (min-width: 576px) {
+            .portal-container {
+                padding: 35px;
+            }
+            .portal-header h1 {
+                font-size: 30px;
+            }
+            .portal-header h2 {
+                font-size: 18px;
+            }
+            .card h3 {
+                font-size: 22px;
+            }
+            .card h3 i {
+                font-size: 20px;
+            }
+            .action-button {
+                font-size: 15px;
+               /* Use min-height instead of fixed height */
+            }
+            .action-button i, .action-button img {
+                font-size: 30px;
+                 width: 30px; /* Adjust size */
+                 height: 30px; /* Adjust size */
+            }
+            .portal-footer {
+                flex-direction: row;
+                justify-content: space-between;
+                align-items: center;
+            }
+            .footer-buttons {
+                order: 1;
+            }
+            .footer-text {
+                order: 2;
+                margin-top: 0;
+                text-align: right;
+            }
+        }
+
+        @media (min-width: 992px) {
+            .portal-container {
+                padding: 40px;
+            }
+            .actions-grid {
+                gap: 25px;
+            }
+            .profile-details {
+                gap: 20px;
+            }
+            .profile-details p {
+                font-size: 16px;
+            }
+        }
+
       `}</style>
+
+      {/* --- Main Content Area --- */}
+      <div className="portal-container">
+        {/* --- Header Section (Same as HTML) --- */}
+        <header className="portal-header">
+          {/* Use Next.js Image for optimization if image is local, otherwise standard img */}
+          <img src="https://kzxy.edu.kg/static/themes/default/images/indexImg/logo-20th.png" alt="Confucius Institute Logo" className="logo" />
+          <h1>孔子学院学生门户</h1>
+          <h2>Confucius Institute Student Portal</h2>
+        </header>
+
+        {/* --- Profile Section (Inject Dynamic Data) --- */}
+        <section className="profile-section card">
+          <h3><i className="fas fa-user-circle"></i> 学生信息 (Student Information)</h3>
+          <div className="profile-details">
+            {/* Use fetched profile data with fallbacks */}
+            <p><strong>姓名 (Name):</strong> <span>{formatUserName(profile.name) || 'N/A'}</span></p>
+            <p><strong>学期 (Semester):</strong> <span>{profile.semester || 'N/A'}</span></p>
+            <p><strong>项目 (Program):</strong> <span>{profile.program || 'N/A'}</span></p>
+            <p><strong>学生邮箱 (Student Email):</strong> <span>{profile.student_email || 'N/A'}</span></p>
+            {/* Conditionally render personal email if available */}
+            {profile.personal_email && (
+               <p><strong>个人邮箱 (Personal Email):</strong> <span>{profile.personal_email}</span></p>
+            )}
+            <p><strong>学生 ID (Student ID):</strong> <span>{profile.student_id || 'N/A'}</span></p>
+          </div>
+        </section>
+
+        {/* --- Actions Section (Update links, keep structure) --- */}
+        <section className="actions-section card">
+          <h3><i className="fas fa-th-large"></i> 快速访问 (Quick Access)</h3>
+          <div className="actions-grid">
+            {/* Student Email (External Link using dynamic gmailLink) */}
+            <a href={gmailLink} className="action-button email" target="_blank" rel="noopener noreferrer">
+              <i className="fas fa-envelope"></i>
+              <span>学生邮箱</span>
+            </a>
+
+            {/* e-Student Card (Internal Link using Next Link) */}
+            <Link href="/student-card" legacyBehavior>
+                <a className="action-button card">
+                    <i className="fas fa-id-card"></i>
+                    <span>电子学生卡</span>
+                </a>
+            </Link>
+
+            {/* Adobe Express (External Link - UPDATED href) */}
+            <a href="https://account.adobe.com/" className="action-button adobe" target="_blank" rel="noopener noreferrer">
+              {/* Keep using img tag for Adobe icon as per HTML */}
+              <img src="https://express.adobe.com/favicon.ico" alt="Adobe Express Icon" />
+              <span>Adobe Express</span>
+            </a>
+
+             {/* Transcript (Internal Link using Next Link) */}
+             <Link href="/transcript" legacyBehavior>
+                <a className="action-button transcript">
+                    <i className="fas fa-file-alt"></i>
+                    <span>成绩单</span>
+                </a>
+            </Link>
+
+            {/* Canva (External Link) */}
+            <a href="https://www.canva.com/login" className="action-button canva" target="_blank" rel="noopener noreferrer">
+              <i className="fas fa-palette"></i>
+              <span>Canva</span>
+            </a>
+
+            {/* Reset Password (Internal Link using Next Link) */}
+            <Link href="/reset-password" legacyBehavior>
+                <a className="action-button password">
+                    <i className="fas fa-key"></i>
+                    <span>重置密码</span>
+                </a>
+            </Link>
+
+             {/* Add Aliases (Internal Link using Next Link) */}
+             <Link href="/aliases" legacyBehavior>
+                <a className="action-button aliases">
+                    <i className="fas fa-plus-circle"></i>
+                    <span>添加邮箱别名</span>
+                </a>
+            </Link>
+          </div>
+        </section>
+
+        {/* --- Footer Section (Use Form for Logout, Button for Delete) --- */}
+        <footer className="portal-footer">
+            <div className="footer-buttons">
+                 {/* Logout Button - Use the robust POST form method from original JS */}
+                <form action="/api/logout" method="POST" style={{ margin: 0, display: 'inline' }}> {/* Ensure form doesn't add extra margin */}
+                    <button type="submit" className="logout-button">
+                        <i className="fas fa-sign-out-alt"></i>
+                        登出 (Logout)
+                    </button>
+                </form>
+
+                {/* Delete Account Button - Attach onClick handler */}
+                <button className="delete-button" onClick={handleDelete}>
+                    <i className="fas fa-trash-alt"></i>
+                    删除账户 (Delete Account)
+                </button>
+            </div>
+            <div className="footer-text">
+                孔子学院学生服务 | Confucius Institute Student Services | Powered by{' '}
+                <a href="https://kzxy.edu.kg" target="_blank" rel="noopener noreferrer">
+                    kzxy.edu.kg
+                </a>
+            </div>
+        </footer>
+      </div>
     </>
-  )
+  );
 }
+// --- END OF FILE student-portal.js ---
